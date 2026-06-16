@@ -1,0 +1,94 @@
+# Copyright 2026 NVIDIA CORPORATION
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+
+name: flatcar-image
+
+on:
+  push:
+    branches:
+      - flatcar
+    paths:
+      - .github/workflows/flatcar-image.yaml
+      - Makefile
+      - multi-arch.mk
+      - native-only.mk
+      - versions.mk
+      - flatcar/**
+  workflow_dispatch:
+    inputs:
+      driver_version:
+        description: NVIDIA driver version to build
+        required: true
+        default: 580.159.04
+      flatcar_versions:
+        description: Space-separated Flatcar VERSION_ID values for GPU Operator tag suffixes
+        required: false
+        default: "4593.2.0"
+
+permissions:
+  contents: read
+  packages: write
+
+env:
+  CUDA_VERSION: 13.0.1
+  IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/driver
+  FLATCAR_VERSIONS: "4593.2.0"
+
+jobs:
+  flatcar:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+        name: Check out code
+
+      - name: Select build variables
+        run: |
+          COMMIT_SHORT_SHA="${GITHUB_SHA:0:8}"
+          echo "VERSION=flatcar-test-${COMMIT_SHORT_SHA}" >> "$GITHUB_ENV"
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
+            echo "DRIVER_VERSIONS_TO_BUILD=${{ inputs.driver_version }}" >> "$GITHUB_ENV"
+            echo "FLATCAR_VERSIONS=${{ inputs.flatcar_versions }}" >> "$GITHUB_ENV"
+          else
+            echo "DRIVER_VERSIONS_TO_BUILD=580.159.04 595.71.05" >> "$GITHUB_ENV"
+          fi
+
+      - name: Set up Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build and push Flatcar driver image
+        run: |
+          for DRIVER_VERSION in ${DRIVER_VERSIONS_TO_BUILD}; do
+            BUILD_MULTI_ARCH_IMAGES=true \
+            DOCKER_BUILD_PLATFORM_OPTIONS="--platform=linux/amd64" \
+            PUSH_ON_BUILD=true \
+            make build-flatcar-${DRIVER_VERSION}
+          done
+
+      - name: Tag image for GPU Operator Flatcar suffix
+        run: |
+          for DRIVER_VERSION in ${DRIVER_VERSIONS_TO_BUILD}; do
+            BASE_TAG="${VERSION}-${DRIVER_VERSION}-flatcar"
+            for FLATCAR_VERSION in ${FLATCAR_VERSIONS}; do
+              docker buildx imagetools create \
+                -t "${IMAGE_NAME}:${BASE_TAG}-flatcar${FLATCAR_VERSION}" \
+                "${IMAGE_NAME}:${BASE_TAG}"
+            done
+          done
