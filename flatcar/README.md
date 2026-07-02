@@ -182,6 +182,114 @@ nvidia              34078720  17 nvidia_uvm,nvidia_modeset
 i2c_core               81920  3 nvidia,psmouse,i2c_piix4
 ```
 
+## Deploying the Precompiled Driver with the GPU Operator
+
+Instead of the manual Docker workflow above, a precompiled driver image can be built
+with [precompiled/Dockerfile](precompiled/Dockerfile) (see the
+`build-precompiled_flatcar-<driver-version>` Make target) and deployed to a Kubernetes
+cluster using the [NVIDIA GPU Operator](https://github.com/NVIDIA/gpu-operator) and Helm.
+
+### Prerequisites
+
+- A Kubernetes cluster with Flatcar Container Linux GPU nodes. The node's Flatcar
+  `VERSION_ID` and kernel must match the precompiled image (e.g. `4593.2.0` /
+  `6.12.81-flatcar`).
+- `helm` v3 and `kubectl` with cluster-admin access.
+- A precompiled driver image published to a registry, e.g.
+  `ghcr.io/robinschneider/driver:flatcar-test-5b98d7b9-595.71.05-flatcar4593.2.0`.
+
+### Image tag convention
+
+The GPU Operator composes the driver image reference as:
+
+```
+<driver.repository>/<driver.image>:<driver.version>-<osTag>
+```
+
+where `osTag` is derived from the node's OS labels (`flatcar` + `VERSION_ID`, e.g.
+`flatcar4593.2.0`). For the image above, set
+`driver.version=flatcar-test-5b98d7b9-595.71.05` and the operator appends
+`-flatcar4593.2.0` automatically.
+
+### Installation
+
+```bash
+helm repo add nvidia https://helm.ngc.nvidia.com/nvidia
+helm repo update
+
+helm install gpu-operator nvidia/gpu-operator \
+  --namespace gpu-operator --create-namespace \
+  --set driver.repository=ghcr.io/robinschneider \
+  --set driver.image=driver \
+  --set driver.version=flatcar-test-5b98d7b9-595.71.05 \
+  --set toolkit.installDir=/opt/nvidia-runtime
+```
+
+Notes:
+
+- `toolkit.installDir=/opt/nvidia-runtime` is **required on Flatcar**: the default
+  install path `/usr/local/nvidia` is on a read-only filesystem and the container
+  toolkit pods will fail with `CreateContainerError` otherwise.
+- If the image is in a private registry, create a pull secret in the `gpu-operator`
+  namespace and add `--set driver.imagePullSecrets[0]=<secret-name>`.
+
+### Verification
+
+1. Wait for the driver pods and check that the precompiled package is used (no runtime
+   compilation):
+
+   ```bash
+   kubectl -n gpu-operator logs -l app=nvidia-driver-daemonset | grep -E "Found NVIDIA driver package|kernel interface matches"
+   ```
+
+   Expected output:
+
+   ```
+   kernel interface matches.
+   Found NVIDIA driver package nvidia-modules-6.12.81
+   ```
+
+   If you instead see `Installing the Flatcar kernel sources...` or
+   `Compiling NVIDIA driver kernel modules...`, the package did not match the running
+   kernel and the driver is being rebuilt from source (check that the node's Flatcar
+   version matches the image's `FLATCAR_VERSION`).
+
+1. Confirm the driver is loaded:
+
+   ```bash
+   kubectl -n gpu-operator exec ds/nvidia-driver-daemonset -- nvidia-smi
+   ```
+
+1. Confirm the whole stack converges — all pods `Running` and the CUDA validators
+   `Completed`:
+
+   ```bash
+   kubectl -n gpu-operator get pods
+   ```
+
+### Reinstalling from scratch
+
+If you delete the `gpu-operator` namespace without `helm uninstall`, cluster-scoped
+leftovers block a fresh install. Clean them up first:
+
+```bash
+kubectl delete clusterpolicy cluster-policy
+kubectl delete clusterrole,clusterrolebinding gpu-operator \
+  gpu-operator-node-feature-discovery gpu-operator-node-feature-discovery-gc
+kubectl delete crd nodefeatures.nfd.k8s-sigs.io nodefeaturerules.nfd.k8s-sigs.io \
+  nodefeaturegroups.nfd.k8s-sigs.io clusterpolicies.nvidia.com nvidiadrivers.nvidia.com
+```
+
+### Switching to a new driver image
+
+To roll out a newly built image without reinstalling:
+
+```bash
+kubectl patch clusterpolicy cluster-policy --type merge \
+  -p '{"spec":{"driver":{"version":"flatcar-test-<sha8>-595.71.05"}}}'
+kubectl -n gpu-operator delete pods -l app=nvidia-driver-daemonset
+```
+
 ## Sample CUDA Workloads
 
 Now we can run some sample CUDA workloads. 

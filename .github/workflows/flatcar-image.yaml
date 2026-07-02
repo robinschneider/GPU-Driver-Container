@@ -18,6 +18,7 @@ on:
   push:
     branches:
       - flatcar
+      - flatcar-precompiled
     paths:
       - .github/workflows/flatcar-image.yaml
       - Makefile
@@ -35,6 +36,10 @@ on:
         description: Space-separated Flatcar VERSION_ID values for GPU Operator tag suffixes
         required: false
         default: "4593.2.0"
+      precompiled_flatcar_versions:
+        description: Optional space-separated Flatcar VERSION_ID values for precompiled driver images
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -59,8 +64,10 @@ jobs:
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
             echo "DRIVER_VERSIONS_TO_BUILD=${{ inputs.driver_version }}" >> "$GITHUB_ENV"
             echo "FLATCAR_VERSIONS=${{ inputs.flatcar_versions }}" >> "$GITHUB_ENV"
+            echo "PRECOMPILED_FLATCAR_VERSIONS=${{ inputs.precompiled_flatcar_versions }}" >> "$GITHUB_ENV"
           else
             echo "DRIVER_VERSIONS_TO_BUILD=580.159.04 595.71.05" >> "$GITHUB_ENV"
+            echo "PRECOMPILED_FLATCAR_VERSIONS=${FLATCAR_VERSIONS}" >> "$GITHUB_ENV"
           fi
 
       - name: Set up Docker Buildx
@@ -90,5 +97,18 @@ jobs:
               docker buildx imagetools create \
                 -t "${IMAGE_NAME}:${BASE_TAG}-flatcar${FLATCAR_VERSION}" \
                 "${IMAGE_NAME}:${BASE_TAG}"
+            done
+          done
+
+      - name: Build and push precompiled Flatcar driver images
+        if: env.PRECOMPILED_FLATCAR_VERSIONS != ''
+        run: |
+          for DRIVER_VERSION in ${DRIVER_VERSIONS_TO_BUILD}; do
+            for FLATCAR_VERSION in ${PRECOMPILED_FLATCAR_VERSIONS}; do
+              FLATCAR_VERSION="${FLATCAR_VERSION}" \
+              BUILD_MULTI_ARCH_IMAGES=true \
+              DOCKER_BUILD_PLATFORM_OPTIONS="--platform=linux/amd64" \
+              PUSH_ON_BUILD=true \
+              make build-precompiled_flatcar-${DRIVER_VERSION}
             done
           done

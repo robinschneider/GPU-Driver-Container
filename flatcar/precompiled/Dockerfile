@@ -21,7 +21,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then \
         echo "deb [arch=arm64] http://ports.ubuntu.com/ubuntu-ports jammy-security main universe" >> /etc/apt/sources.list && \
         usermod -o -u 0 -g 0 _apt ; \
     else \
-        echo "TARGETARCH doesn't match a known arch target" \
+        echo "TARGETARCH doesn't match a known arch target" ; \
         exit 1 ; \
     fi
 
@@ -42,6 +42,7 @@ RUN if [ "$TARGETARCH" = "amd64" ]; then dpkg --add-architecture i386 ; fi && \
         libssl-dev \
         patchelf \
         pahole \
+        file \
         fdisk \
         software-properties-common && \
     rm -rf /var/lib/apt/lists/*
@@ -55,7 +56,6 @@ ARG DRIVER_VERSION=580.95.05
 ENV DRIVER_VERSION=$DRIVER_VERSION
 ENV DEBIAN_FRONTEND=noninteractive
 
-# Install the userspace components and copy the kernel module sources.
 RUN cd /tmp && \
     DRIVER_ARCH="$TARGETARCH" && DRIVER_ARCH=${DRIVER_ARCH/amd64/x86_64} && DRIVER_ARCH=${DRIVER_ARCH/arm64/aarch64} && \
     curl -fSsl --retry 5 --retry-delay 5 --retry-all-errors -O $BASE_URL/$DRIVER_VERSION/NVIDIA-Linux-$DRIVER_ARCH-$DRIVER_VERSION.run && \
@@ -80,16 +80,21 @@ RUN cd /tmp && \
     sed '9,${/^\(kernel\|LICENSE\)/!d}' .manifest > /usr/src/nvidia-$DRIVER_VERSION/.manifest && \
     rm -rf /tmp/*
 
-COPY nvidia-driver /usr/local/bin
+COPY flatcar/nvidia-driver /usr/local/bin
 
 WORKDIR /usr/src/nvidia-$DRIVER_VERSION
 
-ARG PUBLIC_KEY=empty
+ARG PUBLIC_KEY=flatcar/empty
 COPY ${PUBLIC_KEY} kernel/pubkey.x509
+
+ARG FLATCAR_VERSION
+ENV FLATCAR_VERSION=$FLATCAR_VERSION
+ENV CC=gcc-14
+
+RUN test -n "$FLATCAR_VERSION" && \
+    CREATE_PRECOMPILED_PACKAGE=true nvidia-driver update -f "$FLATCAR_VERSION"
 
 # Add NGC DL license from the CUDA image
 RUN mkdir /licenses && mv /NGC-DL-CONTAINER-LICENSE /licenses/NGC-DL-CONTAINER-LICENSE
-
-ENV CC=gcc-14
 
 ENTRYPOINT ["nvidia-driver", "init"]
