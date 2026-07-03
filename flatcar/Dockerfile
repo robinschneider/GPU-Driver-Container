@@ -80,6 +80,24 @@ RUN cd /tmp && \
     sed '9,${/^\(kernel\|LICENSE\)/!d}' .manifest > /usr/src/nvidia-$DRIVER_VERSION/.manifest && \
     rm -rf /tmp/*
 
+# Install fabric manager and NSCQ for NVSwitch based systems (e.g. HGX/DGX A100, H100, H200)
+# The CUDA base image ships its own cuda.list without a signed-by option, which conflicts
+# with the list installed by cuda-keyring; remove it first.
+RUN OS_ARCH=${TARGETARCH/amd64/x86_64} && OS_ARCH=${OS_ARCH/arm64/sbsa} && \
+    rm -f /etc/apt/sources.list.d/cuda*.list && \
+    curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/cuda-keyring.deb \
+        https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${OS_ARCH}/cuda-keyring_1.1-1_all.deb && \
+    dpkg -i /tmp/cuda-keyring.deb && rm -f /tmp/cuda-keyring.deb && \
+    apt-get update && \
+    DRIVER_BRANCH=${DRIVER_VERSION%%.*} && \
+    if [ "$DRIVER_BRANCH" -ge 580 ]; then \
+        FM_PKG=nvidia-fabricmanager NSCQ_PKG=libnvidia-nscq ; \
+    else \
+        FM_PKG=nvidia-fabricmanager-${DRIVER_BRANCH} NSCQ_PKG=libnvidia-nscq-${DRIVER_BRANCH} ; \
+    fi && \
+    apt-get install -y --no-install-recommends "${FM_PKG}=${DRIVER_VERSION}*" "${NSCQ_PKG}=${DRIVER_VERSION}*" && \
+    rm -rf /var/lib/apt/lists/*
+
 COPY nvidia-driver /usr/local/bin
 
 WORKDIR /usr/src/nvidia-$DRIVER_VERSION

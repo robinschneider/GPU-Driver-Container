@@ -19,12 +19,18 @@ https://kinvolk.io/docs/flatcar-container-linux/latest/installing/cloud/aws-ec2/
 
 ## Supported Drivers
 
-Only the following NVIDIA datacenter drivers are supported on Linux kernels 5.9+:
-1. [`450.102.04`](https://www.nvidia.com/Download/driverResults.aspx/169393/en-us)
-1. [`460.32.03`](https://www.nvidia.com/Download/driverResults.aspx/169408/en-us)
+The following NVIDIA datacenter drivers have been tested with this container on Flatcar (kernel 6.12+):
+1. `580.159.04`
+1. `595.71.05`
 
-NVIDIA datacenter GPUs based on Pascal+ architecture (e.g. P100, V100, T4, A100) are supported. Note that NVSwitch based systems (e.g. 
-HGX-2 or HGX A100) are not yet supported.
+Other datacenter driver versions from the [NVIDIA driver downloads](https://www.nvidia.com/en-us/drivers/) are expected to work as
+long as they support the running kernel.
+
+NVIDIA datacenter GPUs based on Pascal+ architecture (e.g. P100, V100, T4, A100, L40S, H100) are supported. On NVSwitch based 
+systems (e.g. HGX/DGX A100, H100, H200) the driver container ships the NVIDIA Fabric Manager and NSCQ library and starts the 
+Fabric Manager automatically when NVSwitch devices are detected (`/proc/driver/nvidia-nvswitch/devices`); this has been verified 
+on HGX H100 8-GPU systems. Note that NVLink5+ systems (e.g. GB200 NVL) additionally require the NVLink Subnet Manager, which is 
+not yet included.
 
 ## Getting Started
 
@@ -258,6 +264,19 @@ Notes:
 
    ```bash
    kubectl -n gpu-operator exec ds/nvidia-driver-daemonset -- nvidia-smi
+   ```
+
+1. On NVSwitch based systems (e.g. HGX H100 8-GPU), confirm the Fabric Manager started and the
+   fabric is initialized:
+
+   ```bash
+   kubectl -n gpu-operator logs -l app=nvidia-driver-daemonset | grep "fabric manager"
+   # Starting NVIDIA fabric manager daemon...
+
+   kubectl -n gpu-operator exec ds/nvidia-driver-daemonset -- nvidia-smi -q | grep -A2 "^    Fabric"
+   #     Fabric
+   #         State  : Completed
+   #         Status : Success
    ```
 
 1. Confirm the whole stack converges — all pods `Running` and the CUDA validators
