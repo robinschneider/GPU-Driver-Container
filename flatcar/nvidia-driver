@@ -109,7 +109,7 @@ _fetch_flatcar_modules() {
     mkdir -p /host-lib
     mkdir -p /lib/modules
 
-    curl --retry 3 -LJO "https://${channel}.release.flatcar-linux.net/${board}/${versionid}/flatcar-container.tar.gz"
+    curl --retry 3 -fLJO "https://${channel}.release.flatcar-linux.net/${board}/${versionid}/flatcar-container.tar.gz"
     tar xf flatcar-container.tar.gz -C /lib/modules ./usr/lib/modules --strip-components 4
     tar xf flatcar-container.tar.gz -C /host-lib ./usr/lib64 --exclude=./usr/lib64/misc/*
     KERNEL_VERSION="$(ls /lib/modules/)"
