@@ -41,6 +41,11 @@ on:
         type: boolean
         required: false
         default: true
+      release:
+        description: Tag images without a dev prefix (e.g. 580.167.08-flatcar4593.2.0) for use with plain driver.version values
+        type: boolean
+        required: false
+        default: false
 
 permissions:
   contents: read
@@ -54,7 +59,7 @@ jobs:
   setup:
     runs-on: ubuntu-latest
     outputs:
-      version: flatcar-test-${{ steps.vars.outputs.sha_short }}
+      version: ${{ steps.vars.outputs.version }}
       driver_versions: ${{ steps.vars.outputs.driver_versions }}
       flatcar_versions: ${{ steps.vars.outputs.flatcar_versions }}
       flatcar_versions_plain: ${{ steps.vars.outputs.flatcar_versions_plain }}
@@ -66,7 +71,14 @@ jobs:
       - name: Compute build matrix
         id: vars
         run: |
-          echo "sha_short=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          # Dev builds get a unique commit-based prefix; release builds get clean tags
+          # (<driver_version>-flatcar<version_id>) matching the GPU Operator's default
+          # image reference scheme.
+          if [[ "${{ github.event_name }}" == "workflow_dispatch" && "${{ inputs.release }}" == "true" ]]; then
+            echo "version=" >> "$GITHUB_OUTPUT"
+          else
+            echo "version=dev-${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          fi
           # Default to the driver versions maintained in versions.mk
           DRIVERS=$(sed -nE 's/^DRIVER_VERSIONS \?= *//p' versions.mk)
           FLATCARS="4593.2.0 4593.2.1 4593.2.2 4593.2.3"
@@ -117,7 +129,7 @@ jobs:
 
       - name: Tag image for GPU Operator Flatcar suffix
         run: |
-          BASE_TAG="${VERSION}-${{ matrix.driver_version }}-flatcar"
+          BASE_TAG="${VERSION:+${VERSION}-}${{ matrix.driver_version }}-flatcar"
           for FLATCAR_VERSION in ${{ needs.setup.outputs.flatcar_versions_plain }}; do
             docker buildx imagetools create \
               -t "${IMAGE_NAME}:${BASE_TAG}-flatcar${FLATCAR_VERSION}" \
