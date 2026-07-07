@@ -1,4 +1,4 @@
-# Copyright 2026 NVIDIA CORPORATION
+# Copyright 2026 Flatcar Maintainers
 #
 # Licensed under the Apache License, Version 2.0 (the "License");
 # you may not use this file except in compliance with the License.
@@ -35,7 +35,7 @@ on:
       flatcar_versions:
         description: Space-separated Flatcar VERSION_ID values (GPU Operator tag suffixes and precompiled builds)
         required: false
-        default: "4593.2.0"
+        default: "4593.2.0 4593.2.1 4593.2.2 4593.2.3"
       build_precompiled:
         description: Also build precompiled driver images for each driver/Flatcar combination
         type: boolean
@@ -47,7 +47,7 @@ permissions:
   packages: write
 
 env:
-  CUDA_VERSION: 13.0.1
+  CUDA_VERSION: 13.3.0
   IMAGE_NAME: ghcr.io/${{ github.repository_owner }}/driver
 
 jobs:
@@ -70,7 +70,7 @@ jobs:
             PRECOMPILED="${{ inputs.build_precompiled }}"
           else
             DRIVERS="580.159.04 595.71.05"
-            FLATCARS="4593.2.0"
+            FLATCARS="4593.2.0 4593.2.1 4593.2.2 4593.2.3"
             PRECOMPILED="true"
           fi
           echo "driver_versions=$(echo "$DRIVERS" | jq -R -c 'split(" ") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
