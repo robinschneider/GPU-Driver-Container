@@ -80,14 +80,21 @@ RUN cd /tmp && \
     sed '9,${/^\(kernel\|LICENSE\)/!d}' .manifest > /usr/src/nvidia-$DRIVER_VERSION/.manifest && \
     rm -rf /tmp/*
 
-# Install fabric manager and NSCQ for NVSwitch based systems (e.g. HGX/DGX A100, H100, H200)
-# The CUDA base image ships its own cuda.list without a signed-by option, which conflicts
-# with the list installed by cuda-keyring; remove it first.
+# Install fabric manager and NSCQ for NVSwitch based systems (e.g. HGX/DGX A100, H100, H200).
+# Newer CUDA base images ship the cuda-keyring package (repo list is a dpkg conffile —
+# do NOT delete it, reinstalling the same version won't restore it). Older images ship
+# a bare cuda.list without signed-by, which conflicts with cuda-keyring; only in that
+# case remove it and install the keyring.
+# NVIDIA publishes fabric manager and NSCQ in lockstep with each datacenter driver
+# release (versions.mk only tracks such versions), so pin the exact driver version
+# and fail fast if it is missing. Packages are branch-suffixed below branch 580.
 RUN OS_ARCH=${TARGETARCH/amd64/x86_64} && OS_ARCH=${OS_ARCH/arm64/sbsa} && \
-    rm -f /etc/apt/sources.list.d/cuda*.list && \
-    curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/cuda-keyring.deb \
-        https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${OS_ARCH}/cuda-keyring_1.1-1_all.deb && \
-    dpkg -i /tmp/cuda-keyring.deb && rm -f /tmp/cuda-keyring.deb && \
+    if ! dpkg -s cuda-keyring > /dev/null 2>&1; then \
+        rm -f /etc/apt/sources.list.d/cuda*.list && \
+        curl -fsSL --retry 5 --retry-delay 5 --retry-all-errors -o /tmp/cuda-keyring.deb \
+            https://developer.download.nvidia.com/compute/cuda/repos/ubuntu2404/${OS_ARCH}/cuda-keyring_1.1-1_all.deb && \
+        dpkg -i /tmp/cuda-keyring.deb && rm -f /tmp/cuda-keyring.deb ; \
+    fi && \
     apt-get update && \
     DRIVER_BRANCH=${DRIVER_VERSION%%.*} && \
     if [ "$DRIVER_BRANCH" -ge 580 ]; then \
@@ -96,6 +103,7 @@ RUN OS_ARCH=${TARGETARCH/amd64/x86_64} && OS_ARCH=${OS_ARCH/arm64/sbsa} && \
         FM_PKG=nvidia-fabricmanager-${DRIVER_BRANCH} NSCQ_PKG=libnvidia-nscq-${DRIVER_BRANCH} ; \
     fi && \
     apt-get install -y --no-install-recommends "${FM_PKG}=${DRIVER_VERSION}*" "${NSCQ_PKG}=${DRIVER_VERSION}*" && \
+    apt-mark hold "${FM_PKG}" "${NSCQ_PKG}" && \
     rm -rf /var/lib/apt/lists/*
 
 COPY nvidia-driver /usr/local/bin

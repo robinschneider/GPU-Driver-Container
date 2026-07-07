@@ -29,9 +29,9 @@ on:
   workflow_dispatch:
     inputs:
       driver_versions:
-        description: Space-separated NVIDIA driver versions to build
-        required: true
-        default: "580.159.04 595.71.05"
+        description: Space-separated NVIDIA driver versions to build (empty = use DRIVER_VERSIONS from versions.mk)
+        required: false
+        default: ""
       flatcar_versions:
         description: Space-separated Flatcar VERSION_ID values (GPU Operator tag suffixes and precompiled builds)
         required: false
@@ -60,19 +60,25 @@ jobs:
       flatcar_versions_plain: ${{ steps.vars.outputs.flatcar_versions_plain }}
       build_precompiled: ${{ steps.vars.outputs.build_precompiled }}
     steps:
+      - uses: actions/checkout@v6
+        name: Check out code
+
       - name: Compute build matrix
         id: vars
         run: |
           echo "sha_short=${GITHUB_SHA:0:8}" >> "$GITHUB_OUTPUT"
+          # Default to the driver versions maintained in versions.mk
+          DRIVERS=$(sed -nE 's/^DRIVER_VERSIONS \?= *//p' versions.mk)
+          FLATCARS="4593.2.0 4593.2.1 4593.2.2 4593.2.3"
+          PRECOMPILED="true"
           if [[ "${{ github.event_name }}" == "workflow_dispatch" ]]; then
-            DRIVERS="${{ inputs.driver_versions }}"
+            if [[ -n "${{ inputs.driver_versions }}" ]]; then
+              DRIVERS="${{ inputs.driver_versions }}"
+            fi
             FLATCARS="${{ inputs.flatcar_versions }}"
             PRECOMPILED="${{ inputs.build_precompiled }}"
-          else
-            DRIVERS="580.159.04 595.71.05"
-            FLATCARS="4593.2.0 4593.2.1 4593.2.2 4593.2.3"
-            PRECOMPILED="true"
           fi
+          echo "Driver versions: $DRIVERS"
           echo "driver_versions=$(echo "$DRIVERS" | jq -R -c 'split(" ") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
           echo "flatcar_versions=$(echo "$FLATCARS" | jq -R -c 'split(" ") | map(select(length > 0))')" >> "$GITHUB_OUTPUT"
           echo "flatcar_versions_plain=$FLATCARS" >> "$GITHUB_OUTPUT"
